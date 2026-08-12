@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>Jellyfin.Plugin.ContentRating</AssemblyName>
+    <RootNamespace>Jellyfin.Plugin.ContentRating</RootNamespace>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <Version>1.0.0.0</Version>
+  </PropertyGroup>
+
+  <!--
+    Pinned to match a Jellyfin 10.11.11 server. If you upgrade the server later,
+    bump these to match (check https://www.nuget.org/packages/Jellyfin.Controller).
+    10.11 changed some Library-manager return types under the hood, so a
+    mismatched package version here causes a MissingMethodException at runtime
+    even though it compiles fine.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Jellyfin.Controller" Version="10.11.11" />
+    <PackageReference Include="Jellyfin.Model" Version="10.11.11" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Configuration\configPage.html" />
+    <EmbeddedResource Include="Web\injector.js" />
+    <EmbeddedResource Include="Web\app.html" />
+  </ItemGroup>
+
+</Project>

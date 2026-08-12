@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Content Tagging</title>
+    <style>
+        :root { color-scheme: dark; }
+        body {
+            font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+            background: #101010; color: #eee; margin: 0; padding: 1.5em;
+        }
+        h1 { font-size: 1.3em; margin: 0; }
+        .topBar {
+            display: flex; align-items: center; gap: 0.75em;
+            margin: -1.5em -1.5em 1.25em; padding: 0.9em 1.2em;
+            background: #1a1a1a; border-bottom: 1px solid #2a2a2a;
+        }
+        #btnBack {
+            background: none; border: none; color: #eee; font-size: 1.4em;
+            line-height: 1; padding: 0.1em 0.3em; cursor: pointer; border-radius: 4px;
+        }
+        #btnBack:hover { background: #2a2a2a; }
+        #accessDenied { padding: 2em; text-align: center; color: #ccc; }
+        .toolbar { display: flex; flex-wrap: wrap; gap: 0.75em; align-items: center; margin-bottom: 1em; }
+        input[type="text"] {
+            background: #1c1c1c; border: 1px solid #333; color: #eee;
+            padding: 0.5em 0.7em; border-radius: 4px; font-size: 1em; flex: 1; min-width: 200px;
+        }
+        button {
+            background: #2a2a2a; border: 1px solid #3a3a3a; color: #eee;
+            padding: 0.5em 0.9em; border-radius: 4px; cursor: pointer; font-size: 0.95em;
+        }
+        button:hover { background: #383838; }
+        button.active { background: #00A4DC; border-color: #00A4DC; color: #fff; }
+        button.primary { background: #00A4DC; border-color: #00A4DC; color: #fff; }
+        label.tagCheck { display: flex; align-items: center; gap: 0.4em; font-size: 0.95em; }
+        table { width: 100%; border-collapse: collapse; margin-top: 0.5em; }
+        tbody tr:nth-child(even) { background: #1a1a1a; }
+        tbody tr:hover { background: #242424; }
+        td { padding: 0.5em 0.4em; border-bottom: 1px solid #222; vertical-align: middle; }
+        td.year { color: #999; width: 4em; }
+        td.rating { color: #ccc; width: 6em; }
+        td.csm { width: 9em; }
+        td.csm a { color: #4FC3F7; text-decoration: none; }
+        td.csm a:hover { text-decoration: underline; }
+        td.actions button { margin-right: 0.4em; }
+        td.actions button.kid.active { background: #2E7D32; border-color: #2E7D32; }
+        td.actions button.teen.active { background: #1565C0; border-color: #1565C0; }
+        td.actions button.all.active { background: #6A1B9A; border-color: #6A1B9A; }
+        #status { color: #999; font-size: 0.9em; margin-top: 0.5em; }
+        .pager { display: flex; align-items: center; gap: 1em; margin-top: 1em; }
+        .pager button:disabled { opacity: 0.4; cursor: default; }
+        #pageInfo { color: #999; font-size: 0.9em; }
+        #alphaRail {
+            position: fixed; right: 4px; top: 50%; transform: translateY(-50%);
+            display: flex; flex-direction: column; align-items: center; gap: 1px;
+            z-index: 50;
+        }
+        #alphaRail button {
+            background: none; border: none; color: #888; padding: 2px 5px;
+            font-size: 0.95em; line-height: 1.3; border-radius: 3px; min-width: 0;
+        }
+        #alphaRail button:hover, #alphaRail button.active { background: #00A4DC; color: #fff; }
+    </style>
+</head>
+<body>
+    <div id="accessDenied" style="display:none;">
+        You don't have permission to use the tagging app. Ask an administrator to add you as an allowed editor.
+    </div>
+
+    <div id="appRoot" style="display:none; padding-right: 1.6em;">
+        <div class="topBar">
+            <button id="btnBack" title="Close" aria-label="Close">&larr;</button>
+            <h1>Content Tagging</h1>
+        </div>
+        <div class="toolbar">
+            <input type="text" id="searchQuery" placeholder="Search by title&hellip;" />
+            <label class="tagCheck"><input type="checkbox" id="filterKid" /> Kid</label>
+            <label class="tagCheck"><input type="checkbox" id="filterTeen" /> Teen</label>
+            <label class="tagCheck"><input type="checkbox" id="filterAll" /> All</label>
+            <button id="btnSearch" class="primary">Search</button>
+            <button id="btnClear">Clear</button>
+        </div>
+        <table>
+            <thead>
+                <tr><td>Title</td><td class="year">Year</td><td class="rating">Content Rating</td><td>Rating</td><td class="csm">Common Sense Media</td></tr>
+            </thead>
+            <tbody id="resultsBody"></tbody>
+        </table>
+        <div class="pager">
+            <button id="btnPrev">&larr; Prev</button>
+            <span id="pageInfo"></span>
+            <button id="btnNext">Next &rarr;</button>
+        </div>
+        <div id="status"></div>
+    </div>
+
+    <div id="alphaRail"></div>
+
+    <script>
+        (function () {
+            var params = new URLSearchParams(window.location.search);
+            var token = params.get('token') || '';
+            var initialQuery = params.get('q') || '';
+
+            if (!token) {
+                // Opened from the sidebar (a static config.json menu link, which
+                // can't carry a per-click token in its URL) rather than from the
+                // injected popup button -- fall back to reading the same
+                // jellyfin_credentials localStorage entry the Jellyfin web app
+                // itself uses, since this page is served from the same origin.
+                try {
+                    var creds = JSON.parse(localStorage.getItem('jellyfin_credentials') || 'null');
+                    var server = creds && creds.Servers && creds.Servers[0];
+                    if (server && server.AccessToken) {
+                        token = server.AccessToken;
+                    }
+                } catch (e) { /* fall through to access-denied below */ }
+            }
+
+            function apiFetch(path, options) {
+                options = options || {};
+                options.headers = Object.assign({ 'X-Emby-Token': token }, options.headers || {});
+                return fetch(path, options);
+            }
+
+            function setStatus(text) {
+                document.getElementById('status').textContent = text;
+            }
+
+            function renderResults(items) {
+                var tbody = document.getElementById('resultsBody');
+                tbody.innerHTML = '';
+                items.forEach(function (item) {
+                    var tr = document.createElement('tr');
+
+                    var tdName = document.createElement('td');
+                    tdName.textContent = item.Name;
+                    tr.appendChild(tdName);
+
+                    var tdYear = document.createElement('td');
+                    tdYear.className = 'year';
+                    tdYear.textContent = item.ProductionYear || '';
+                    tr.appendChild(tdYear);
+
+                    var tdOfficial = document.createElement('td');
+                    tdOfficial.className = 'rating';
+                    tdOfficial.textContent = item.OfficialRating || '';
+                    tr.appendChild(tdOfficial);
+
+                    var tdActions = document.createElement('td');
+                    tdActions.className = 'actions';
+                    ['kid', 'teen', 'all'].forEach(function (tag) {
+                        var btn = document.createElement('button');
+                        btn.textContent = tag[0].toUpperCase() + tag.slice(1);
+                        btn.dataset.tag = tag;
+                        var isActive = (tag === 'all') ? !item.Tag : (item.Tag === tag);
+                        btn.className = tag + (isActive ? ' active' : '');
+                        btn.addEventListener('click', function () {
+                            // "All" always just clears any kid/teen tag -- it's
+                            // not a real tag value in its own right, it just
+                            // means "neither of the other two".
+                            var newTag = (tag === 'all') ? '' : (item.Tag === tag ? '' : tag);
+                            setTag(item.Id, newTag, tdActions);
+                        });
+                        tdActions.appendChild(btn);
+                    });
+                    tr.appendChild(tdActions);
+
+                    var tdCsm = document.createElement('td');
+                    tdCsm.className = 'csm';
+                    var csmLink = document.createElement('a');
+                    csmLink.href = 'https://www.commonsensemedia.org/search/' + encodeURIComponent(item.Name);
+                    csmLink.target = '_blank';
+                    csmLink.rel = 'noopener noreferrer';
+                    csmLink.textContent = 'Look up \u2197';
+                    tdCsm.appendChild(csmLink);
+                    tr.appendChild(tdCsm);
+
+                    tbody.appendChild(tr);
+                });
+            }
+
+            function setTag(itemId, tag, tdActions) {
+                apiFetch('/ContentRating/SetTag', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ itemId: itemId, tag: tag })
+                }).then(function (resp) { return resp.ok ? resp.json() : null; })
+                    .then(function (result) {
+                        if (!result) {
+                            setStatus('Failed to update tag.');
+                            return;
+                        }
+                        tdActions.querySelectorAll('button').forEach(function (btn) {
+                            var btnTag = btn.dataset.tag;
+                            var isActive = (btnTag === 'all') ? !result.Tag : (result.Tag === btnTag);
+                            btn.classList.toggle('active', isActive);
+                        });
+                        setStatus('');
+                    })
+                    .catch(function () { setStatus('Failed to update tag (network error).'); });
+            }
+
+            var pageSize = 100;
+            var startIndex = 0;
+            var letterAnchor = '';
+            var lastTotalCount = 0;
+            var lastHasMore = false;
+
+            function buildAlphaRail() {
+                var rail = document.getElementById('alphaRail');
+                'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').forEach(function (letter) {
+                    var btn = document.createElement('button');
+                    btn.textContent = letter;
+                    btn.dataset.letter = letter;
+                    btn.addEventListener('click', function () { jumpToLetter(letter); });
+                    rail.appendChild(btn);
+                });
+            }
+
+            function jumpToLetter(letter) {
+                startIndex = 0;
+                letterAnchor = letter;
+                document.querySelectorAll('#alphaRail button').forEach(function (btn) {
+                    btn.classList.toggle('active', btn.dataset.letter === letter);
+                });
+                loadPage();
+            }
+
+            function search() {
+                startIndex = 0;
+                letterAnchor = '';
+                document.querySelectorAll('#alphaRail button').forEach(function (btn) {
+                    btn.classList.remove('active');
+                });
+                loadPage();
+            }
+
+            function loadPage() {
+                var q = document.getElementById('searchQuery').value.trim();
+                var kidChecked = document.getElementById('filterKid').checked;
+                var teenChecked = document.getElementById('filterTeen').checked;
+                var allChecked = document.getElementById('filterAll').checked;
+
+                var tags = [];
+                if (kidChecked) tags.push('kid');
+                if (teenChecked) tags.push('teen');
+
+                var url = '/ContentRating/SearchMovies'
+                    + '?q=' + encodeURIComponent(q)
+                    + '&tags=' + encodeURIComponent(tags.join(','))
+                    + '&untaggedOnly=' + (allChecked ? 'true' : 'false')
+                    + '&startIndex=' + startIndex
+                    + '&pageSize=' + pageSize
+                    + (letterAnchor ? '&nameStartsWithOrGreater=' + encodeURIComponent(letterAnchor) : '');
+
+                setStatus('Searching\u2026');
+                apiFetch(url).then(function (resp) { return resp.ok ? resp.json() : null; })
+                    .then(function (data) {
+                        if (!data) {
+                            setStatus('Search failed.');
+                            return;
+                        }
+                        renderResults(data.Items);
+                        lastTotalCount = data.TotalCount;
+                        lastHasMore = data.HasMore;
+                        updatePager();
+                        var shown = data.Items.length;
+                        var rangeStart = shown === 0 ? 0 : startIndex + 1;
+                        var rangeEnd = startIndex + shown;
+                        setStatus(shown === 0 ? 'No results' : ('Showing ' + rangeStart + '\u2013' + rangeEnd + ' of ' + lastTotalCount));
+                    })
+                    .catch(function () { setStatus('Search failed.'); });
+            }
+
+            function updatePager() {
+                document.getElementById('btnPrev').disabled = startIndex <= 0;
+                document.getElementById('btnNext').disabled = !lastHasMore;
+                var currentPage = Math.floor(startIndex / pageSize) + 1;
+                var totalPages = Math.max(1, Math.ceil(lastTotalCount / pageSize));
+                document.getElementById('pageInfo').textContent = 'Page ' + currentPage + ' of ' + totalPages;
+            }
+
+            function clearFilters() {
+                document.getElementById('searchQuery').value = '';
+                document.getElementById('filterKid').checked = false;
+                document.getElementById('filterTeen').checked = false;
+                document.getElementById('filterAll').checked = false;
+                search();
+            }
+
+            function init() {
+                if (!token) {
+                    document.getElementById('accessDenied').style.display = 'block';
+                    document.getElementById('accessDenied').textContent = 'Could not find a Jellyfin login -- open this from within Jellyfin while logged in.';
+                    return;
+                }
+
+                apiFetch('/ContentRating/CanEdit')
+                    .then(function (resp) { return resp.ok ? resp.json() : { CanEdit: false }; })
+                    .then(function (data) {
+                        if (!data.CanEdit) {
+                            document.getElementById('accessDenied').style.display = 'block';
+                            return;
+                        }
+                        document.getElementById('appRoot').style.display = 'block';
+                        buildAlphaRail();
+                        document.getElementById('searchQuery').value = initialQuery;
+                        document.getElementById('btnSearch').addEventListener('click', search);
+                        document.getElementById('btnClear').addEventListener('click', clearFilters);
+                        document.getElementById('btnBack').addEventListener('click', function () { window.close(); });
+                        document.getElementById('btnPrev').addEventListener('click', function () {
+                            startIndex = Math.max(0, startIndex - pageSize);
+                            loadPage();
+                        });
+                        document.getElementById('btnNext').addEventListener('click', function () {
+                            startIndex += pageSize;
+                            loadPage();
+                        });
+                        document.getElementById('filterKid').addEventListener('change', function () {
+                            if (this.checked) { document.getElementById('filterAll').checked = false; }
+                            search();
+                        });
+                        document.getElementById('filterTeen').addEventListener('change', function () {
+                            if (this.checked) { document.getElementById('filterAll').checked = false; }
+                            search();
+                        });
+                        document.getElementById('filterAll').addEventListener('change', function () {
+                            if (this.checked) {
+                                document.getElementById('filterKid').checked = false;
+                                document.getElementById('filterTeen').checked = false;
+                            }
+                            search();
+                        });
+                        document.addEventListener('keydown', function (e) {
+                            if (e.key === 'Escape') { window.close(); }
+                        });
+                        document.getElementById('searchQuery').addEventListener('keydown', function (e) {
+                            if (e.key === 'Enter') { search(); }
+                        });
+                        search();
+                    })
+                    .catch(function () {
+                        document.getElementById('accessDenied').style.display = 'block';
+                        document.getElementById('accessDenied').textContent = 'Could not verify access. Try again.';
+                    });
+            }
+
+            init();
+        })();
+    </script>
+</body>
+</html>

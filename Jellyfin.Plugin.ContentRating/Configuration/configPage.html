@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Content Rating</title>
+</head>
+<body>
+<div id="ContentRatingConfigPage" data-role="page" class="page type-interior pluginConfigurationPage contentRatingConfigurationPage" data-require="emby-input,emby-button,emby-checkbox">
+    <div data-role="content">
+        <div class="content-primary">
+
+            <form class="contentRatingSettingsForm">
+                <div class="verticalSection">
+                    <h1>Content Rating</h1>
+                    <p>
+                        Movie tagging happens through this plugin's own built-in tagging app. This page just controls who's allowed to
+                        open it -- via a button and a three-dot menu item -- without needing full administrator rights.
+                    </p>
+                </div>
+
+                <div class="verticalSection">
+                    <h2 class="sectionTitle">Allowed editors</h2>
+                    <p class="fieldDescription">
+                        Administrators can always open the tagging app. Check any additional
+                        (non-admin) users who should be able to as well.
+                    </p>
+                    <div id="userList" class="checkboxList paperList" style="padding: 0.5em 1em;"></div>
+                </div>
+
+                <br/>
+                <div>
+                    <button is="emby-button" type="submit" class="raised button-submit block emby-button">
+                        <span>Save</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        function generateUserCheckboxList(users, selectedIds, containerId) {
+            const container = document.getElementById(containerId);
+            const fragment = document.createDocumentFragment();
+            for (const user of users) {
+                const isAdmin = !!user.IsAdministrator;
+                const label = document.createElement("label");
+                label.className = "emby-checkbox-label";
+                label.innerHTML = '<input type="checkbox" is="emby-checkbox" class="contentRatingEditorCheckbox"'
+                    + (isAdmin || selectedIds.includes(user.Id) ? " checked" : "")
+                    + (isAdmin ? " disabled" : "")
+                    + ' value="' + user.Id + '"><span class="checkboxLabel">' + user.Name
+                    + (isAdmin ? " (administrator -- always allowed)" : "") + '</span>';
+                fragment.appendChild(label);
+            }
+            container.innerHTML = "";
+            container.appendChild(fragment);
+        }
+
+        function getCheckedValues(wrapperId) {
+            const nodes = document.getElementById(wrapperId).querySelectorAll('input:checked');
+            const values = [];
+            for (const node of nodes) {
+                values.push(node.value);
+            }
+            return values;
+        }
+
+        (function () {
+            var pluginId = "f3a1b2c4-7e21-4a5b-8e2d-9f0a1b2c3d4e";
+
+            $('.contentRatingConfigurationPage').on('pageshow', function (event) {
+                var page = this;
+
+                Dashboard.showLoadingMsg();
+
+                ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                    var selectedIds = config.EditorUserIds || [];
+
+                    fetch(ApiClient.serverAddress() + '/ContentRating/Users', {
+                        headers: { 'X-Emby-Token': ApiClient.accessToken() }
+                    })
+                        .then(function (resp) { return resp.ok ? resp.json() : []; })
+                        .then(function (users) {
+                            generateUserCheckboxList(users, selectedIds, 'userList');
+                            Dashboard.hideLoadingMsg();
+                        })
+                        .catch(function () {
+                            document.getElementById('userList').textContent = 'Could not load the user list. Check the browser console / server log.';
+                            Dashboard.hideLoadingMsg();
+                        });
+                });
+            });
+
+            $('.contentRatingSettingsForm').off('submit.plugin').on('submit.plugin', function (e) {
+                Dashboard.showLoadingMsg();
+
+                var form = this;
+
+                ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                    config.EditorUserIds = getCheckedValues('userList');
+
+                    ApiClient.updatePluginConfiguration(pluginId, config).then(Dashboard.processPluginConfigurationUpdateResult);
+                });
+
+                return false;
+            });
+        })();
+    </script>
+</div>
+</body>
+</html>
